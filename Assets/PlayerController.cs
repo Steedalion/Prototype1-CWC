@@ -5,13 +5,14 @@ using UnityEngine;
 public class PlayerController : MonoBehaviour
 {
 	float turnSpeed = 60;
-	float speed = 10f;
+	[SerializeField] private float horsePower;
 	float horizontalInput;
 	float forwardInput;
+	Rigidbody rb;
 	// Start is called before the first frame update
     void Start()
     {
-        
+	    rb = GetComponent<Rigidbody>();
     }
 
     // Update is called once per frame
@@ -19,8 +20,8 @@ public class PlayerController : MonoBehaviour
 	{
 		horizontalInput = Input.GetAxis("Horizontal");
 		forwardInput = Input.GetAxis("Vertical");
-		Debug.Log(horizontalInput);
-		transform.Translate(Vector3.forward*Time.deltaTime*speed*forwardInput);
+		rb.AddRelativeForce(Vector3.forward * forwardInput * horsePower);
+		
 		transform.Rotate(Vector3.up*Time.deltaTime*turnSpeed*horizontalInput);
     }
 }
