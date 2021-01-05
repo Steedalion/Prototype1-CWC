@@ -1,5 +1,5 @@
 ﻿/* SCRIPT INSPECTOR 3
- * version 3.0.26, February 2020
+ * version 3.0.27, December 2020
  * Copyright © 2012-2020, Flipbook Games
  * 
  * Unity's legendary editor for C#, UnityScript, Boo, Shaders, and text,
@@ -74,12 +74,6 @@ public class TabSwitcher : FGPopupWindow
 		
 		var window = CreatePopup<TabSwitcher>();
 		window.hideFlags = HideFlags.HideAndDontSave;
-		
-#if UNITY_4_0 || UNITY_4_1 || UNITY_4_2 || UNITY_4_3 || UNITY_4_4 || UNITY_4_5 || UNITY_4_6 || UNITY_4_7 || UNITY_5_0
-		window.title = "";
-#else
-		window.titleContent.text = "";
-#endif
 		window.minSize = Vector2.one;
 		
 		window.position = position;

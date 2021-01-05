@@ -1,5 +1,5 @@
 ﻿/* SCRIPT INSPECTOR 3
- * version 3.0.26, February 2020
+ * version 3.0.27, December 2020
  * Copyright © 2012-2020, Flipbook Games
  * 
  * Unity's legendary editor for C#, UnityScript, Boo, Shaders, and text,
@@ -89,6 +89,7 @@ public enum Modifiers
 	Params = 1 << 15,
 	This = 1 << 16,
 	Partial = 1 << 17,
+	Async = 1 << 18,
 }
 
 public enum AccessLevel : byte
@@ -335,9 +336,19 @@ public abstract class Scope
 			parentScope.ResolveAttribute(leaf);
 	}
 
-	public virtual SymbolDefinition ResolveAsExtensionMethod(ParseTree.Leaf invokedLeaf, SymbolDefinition invokedSymbol, TypeDefinitionBase memberOf, ParseTree.Node argumentListNode, SymbolReference[] typeArgs, Scope context)
+	public SymbolDefinition ResolveAsExtensionMethod(ParseTree.Leaf invokedLeaf, SymbolDefinition invokedSymbol, TypeDefinitionBase memberOf, ParseTree.Node argumentListNode, SymbolReference[] typeArgs, Scope context)
 	{
-		return parentScope != null ? parentScope.ResolveAsExtensionMethod(invokedLeaf, invokedSymbol, memberOf, argumentListNode, typeArgs, context) : null;
+		if (invokedLeaf == null && (invokedSymbol == null || invokedSymbol.kind == SymbolKind.Error))
+			return null;
+		
+		var id = invokedSymbol != null && invokedSymbol.kind != SymbolKind.Error ? invokedSymbol.name : invokedLeaf != null ? SymbolDefinition.DecodeId(invokedLeaf.token.text) : "";
+		
+		return ResolveAsExtensionMethod(id, memberOf, argumentListNode, typeArgs, context, invokedLeaf);
+	}
+	
+	public virtual SymbolDefinition ResolveAsExtensionMethod(string id, TypeDefinitionBase memberOf, ParseTree.Node argumentListNode, SymbolReference[] typeArgs, Scope context, ParseTree.Leaf invokedLeaf = null)
+	{
+		return parentScope != null ? parentScope.ResolveAsExtensionMethod(id, memberOf, argumentListNode, typeArgs, context, invokedLeaf) : null;
 	}
 	
 	public abstract SymbolDefinition FindName(string symbolName, int numTypeParameters);
@@ -2605,6 +2616,42 @@ public abstract class TypeDefinitionBase : SymbolDefinition
 		
 		return false;
 	}
+
+	public MethodDefinition FindMethod(string name, int numTypeParams, int numParams, bool onlyNonStatic)
+	{
+		//TODO: Also try to find an extension method.
+		//TODO: Also try to find the method in base types.
+		
+		SymbolDefinition member = FindName(name, numTypeParams, false);
+		if (member == null)
+			return null;
+		if (member.kind != SymbolKind.MethodGroup)
+			return null;
+		
+		List<MethodDefinition> methods;
+		var methodGroup = member as MethodGroupDefinition;
+		if (methodGroup != null)
+		{
+			if (methodGroup.IsStatic && onlyNonStatic)
+				return null;
+
+			methods = methodGroup.methods;
+		}
+		else
+		{
+			var constructedMethodGroup = member as ConstructedMethodGroupDefinition;
+			if (constructedMethodGroup == null)
+				return null;
+				
+			if (constructedMethodGroup.IsStatic && onlyNonStatic)
+				return null;
+
+			methods = constructedMethodGroup.methods;
+		}
+		
+		var method = methods.Find(x => x.NumParameters == numParams);
+		return method;
+	}
 }
 
 //TODO: Finish this
@@ -3292,8 +3339,10 @@ public class ConstructedTypeDefinition : TypeDefinition
 		{
 			for (int i = 0; i < interfaces.Count; i++)
 			{
-				var interfaceTpe = interfaces[i];
-				var convertedToInterface = ((TypeDefinitionBase) interfaceTpe.definition).ConvertTo(otherType);
+				var interfaceType = (TypeDefinitionBase) interfaces[i].definition;
+				if (interfaceType == null)
+					continue;
+				var convertedToInterface = interfaceType.ConvertTo(otherType);
 				if (convertedToInterface != null)
 				{
 					convertingToBase = false;
@@ -6704,13 +6753,8 @@ public class NamespaceScope : Scope
 			parentScope.ResolveAttribute(leaf);
 	}
 	
-	public override SymbolDefinition ResolveAsExtensionMethod(ParseTree.Leaf invokedLeaf, SymbolDefinition invokedSymbol, TypeDefinitionBase memberOf, ParseTree.Node argumentListNode, SymbolReference[] typeArgs, Scope context)
+	public override SymbolDefinition ResolveAsExtensionMethod(string id, TypeDefinitionBase memberOf, ParseTree.Node argumentListNode, SymbolReference[] typeArgs, Scope context, ParseTree.Leaf invokedLeaf = null)
 	{
-		if (invokedLeaf == null && (invokedSymbol == null || invokedSymbol.kind == SymbolKind.Error))
-			return null;
-		
-		var id = invokedSymbol != null && invokedSymbol.kind != SymbolKind.Error ? invokedSymbol.name : invokedLeaf != null ? SymbolDefinition.DecodeId(invokedLeaf.token.text) : "";
-		
 		MethodDefinition firstAccessibleMethod = null;
 		
 		var thisAssembly = GetAssembly();
@@ -6852,12 +6896,12 @@ public class NamespaceScope : Scope
 		
 		if (parentScope != null)
 		{
-			var resolved = parentScope.ResolveAsExtensionMethod(invokedLeaf, invokedSymbol, memberOf, argumentListNode, typeArgs, context);
+			var resolved = parentScope.ResolveAsExtensionMethod(id, memberOf, argumentListNode, typeArgs, context, invokedLeaf);
 			if (resolved != null)
 				return resolved;
 		}
 		
-		if (firstAccessibleMethod != null)
+		if (firstAccessibleMethod != null && invokedLeaf != null)
 		{
 			invokedLeaf.resolvedSymbol = firstAccessibleMethod;
 			invokedLeaf.semanticError = MethodGroupDefinition.unresolvedMethodOverload.name;
@@ -9190,6 +9234,10 @@ public class SymbolDefinition
 	public static TypeDefinition builtInTypes_Exception;
 	public static TypeDefinition builtInTypes_Enum;
 
+	public static TypeDefinition builtInTypes_Task;
+	public static TypeDefinition builtInTypes_Task_1;
+	public static TypeDefinition builtInTypes_INotifyCompletion;
+
 	//public static HashSet<string> missingResolveNodePaths = new HashSet<string>();
 	
 	public static SymbolDefinition ResolveNodeAsConstructor(ParseTree.BaseNode oceNode, Scope scope, SymbolDefinition asMemberOf)
@@ -9570,8 +9618,7 @@ public class SymbolDefinition
 										leaf.semanticError = "Type expected!";
 									}
 								}
-#if NET_4_6
-								else if (leaf.token.text == "nameof" && leaf.parent != null)
+								else if (!CsParser.isCSharp4 && leaf.token.text == "nameof" && leaf.parent != null)
 								{
 									var nextNode = leaf.parent.nextSibling as ParseTree.Node;
 									if (nextNode != null)
@@ -9585,7 +9632,6 @@ public class SymbolDefinition
 										}
 									}
 								}
-#endif
 							}
 						}
 						if (leaf.resolvedSymbol == null)
@@ -10011,6 +10057,7 @@ public class SymbolDefinition
 
 			case "primaryExpression":
 				var invokeTarget = part;
+				var returnNullable = false;
 				ParseTree.Leaf invokeTargetLeaf = null;
 				for (var i = 0; i < node.numValidNodes; ++i)
 				{
@@ -10241,6 +10288,19 @@ public class SymbolDefinition
 							if (accessIdentifierNode != null && accessIdentifierNode.RuleName == "accessIdentifier")
 							{
 								invokeTargetLeaf = accessIdentifierNode.LeafAt(1);
+								
+								var accessLeaf = accessIdentifierNode.LeafAt(0);
+								if (accessLeaf != null && accessLeaf.token.text == "?.")
+								{
+									returnNullable = true;
+									
+									var prevPartType = asMemberOf.TypeOf() as TypeDefinitionBase;
+									if (prevPartType != null && (prevPartType.kind == SymbolKind.Struct && prevPartType.GetGenericSymbol() != builtInTypes_Nullable || prevPartType.kind == SymbolKind.Enum))
+									{
+										accessLeaf.semanticError = "Operator '?.' cannot be applied to operand of a value type";
+										return unknownType;
+									}
+								}
 							}
 							else
 							{
@@ -10254,6 +10314,12 @@ public class SymbolDefinition
 								invokeTargetLeaf = partNode.LeafAt(partNode.numValidNodes == 3 ? 2 : 0);
 						}
 					}
+				}
+				if (returnNullable && part != null)
+				{
+					var partType = part.TypeOf() as TypeDefinitionBase;
+					if (partType != null && (partType.kind == SymbolKind.Struct || partType.kind == SymbolKind.Enum))
+						part = partType.MakeNullableType().GetThisInstance();
 				}
 				return part ?? unknownSymbol;
 
@@ -10591,12 +10657,10 @@ public class SymbolDefinition
 					ResolveNode(node.ChildAt(2), scope);
 				return builtInTypes_int.GetThisInstance();
 
-#if NET_4_6
 			case "nameofExpression":
 				if (node.numValidNodes >= 3)
 					ResolveNode(node.ChildAt(2), scope);
 				return builtInTypes_string.GetThisInstance();
-#endif
 
 			case "checkedExpression":
 			case "uncheckedExpression":
@@ -10654,6 +10718,52 @@ public class SymbolDefinition
 				if (node.ChildAt(0) is ParseTree.Node)
 					return ResolveNode(node.ChildAt(0), scope, null);
 				return ResolveNode(node.ChildAt(1), scope, null);
+			
+			case "awaitExpression":
+				if (node.numValidNodes < 2)
+					return unknownType;
+				var awaitOperand = ResolveNode(node.ChildAt(1), scope, null);
+				var typeOfAwaitOperand = awaitOperand.TypeOf() as TypeDefinition ?? unknownType;
+				if (typeOfAwaitOperand.kind == SymbolKind.Error)
+					return typeOfAwaitOperand;
+				
+				if (typeOfAwaitOperand == builtInTypes_Task)
+					return builtInTypes_void.GetThisInstance();
+				
+				var taskType = typeOfAwaitOperand.ConvertTo(builtInTypes_Task_1) as ConstructedTypeDefinition;
+				if (taskType != null)
+				{
+					var returnTypeReference = taskType.typeArguments == null ? null : taskType.typeArguments.FirstOrDefault();
+					if (returnTypeReference == null)
+						return null;
+					var returnType = returnTypeReference.definition as TypeDefinition;
+					return returnType == null ? null : returnType.GetThisInstance();
+				}
+				
+				var getAwaiterMethod = typeOfAwaitOperand.FindMethod("GetAwaiter", 0, 0, true);
+				if (getAwaiterMethod == null)
+				{
+					getAwaiterMethod = scope.ResolveAsExtensionMethod("GetAwaiter", typeOfAwaitOperand, null, null, scope, null) as MethodDefinition;
+				}
+				if (getAwaiterMethod == null)
+					return null;
+				
+				//TODO: Check is the GetAwaiter() method accessibie...
+				var awaiterType = getAwaiterMethod.ReturnType();
+				if (awaiterType == null || !awaiterType.DerivesFrom(builtInTypes_INotifyCompletion))
+					return null;
+				
+				var getResultMethod = awaiterType.FindMethod("GetResult", 0, 0, true);
+				if (getResultMethod == null)
+					return null;
+					
+				var getResultReturnType = getResultMethod.ReturnType();
+				getResultReturnType = getResultReturnType.SubstituteTypeParameters(getResultMethod);
+				getResultReturnType = getResultReturnType.SubstituteTypeParameters(awaiterType);
+				getResultReturnType = getResultReturnType.SubstituteTypeParameters(getAwaiterMethod);
+				getResultReturnType = getResultReturnType.SubstituteTypeParameters(typeOfAwaitOperand);
+				
+				return getResultReturnType.GetThisInstance();
 			
 			case "preIncrementExpression":
 			case "preDecrementExpression":
@@ -11196,6 +11306,13 @@ public class SymbolDefinition
 			return typeParameters != null ? typeParameters.Count : 0;
 		}
 	}
+
+	public int NumParameters {
+		get {
+			var parameters = GetParameters();
+			return parameters != null ? parameters.Count : 0;
+		}
+	}
 }
 
 static class DictExtensions
@@ -11289,6 +11406,11 @@ public class SymbolDeclaration //: IVisitableTreeNode<SymbolDeclaration, SymbolD
 	public bool IsPartial
 	{
 		get { return (modifiers & Modifiers.Partial) != 0; }
+	}
+	
+	public bool IsAsync
+	{
+		get { return (modifiers & Modifiers.Async) != 0; }
 	}
 
 	public ParseTree.BaseNode NameNode()
@@ -11395,6 +11517,7 @@ public class SymbolDeclaration //: IVisitableTreeNode<SymbolDeclaration, SymbolD
 			case "interfaceSetAccessorDeclaration":
 			case "addAccessorDeclaration":
 			case "removeAccessorDeclaration":
+			case "readonlyAccessorDeclaration":
 				nameNode = parseTreeNode.FindChildByName("IDENTIFIER");
 				break;
 
@@ -11446,6 +11569,7 @@ public class SymbolDeclaration //: IVisitableTreeNode<SymbolDeclaration, SymbolD
 				{
 					case "getAccessorDeclaration":
 					case "interfaceGetAccessorDeclaration":
+					case "readonlyAccessorDeclaration":
 						return "get";
 					case "setAccessorDeclaration":
 					case "interfaceSetAccessorDeclaration":
@@ -12295,36 +12419,6 @@ public class AssemblyDefinition : SymbolDefinition
 
 		_globalNamespace = new NamespaceDefinition { name = "", kind = SymbolKind.Namespace, parentSymbol = this };
 
-		if (builtInTypes == null)
-		{
-			builtInTypes = new Dictionary<string, TypeDefinitionBase>
-		    {
-			    { "int", builtInTypes_int = DefineBuiltInType(typeof(int)) },
-			    { "uint", builtInTypes_uint = DefineBuiltInType(typeof(uint)) },
-			    { "byte", builtInTypes_byte = DefineBuiltInType(typeof(byte)) },
-			    { "sbyte", builtInTypes_sbyte = DefineBuiltInType(typeof(sbyte)) },
-			    { "short", builtInTypes_short = DefineBuiltInType(typeof(short)) },
-			    { "ushort", builtInTypes_ushort = DefineBuiltInType(typeof(ushort)) },
-			    { "long", builtInTypes_long = DefineBuiltInType(typeof(long)) },
-			    { "ulong", builtInTypes_ulong = DefineBuiltInType(typeof(ulong)) },
-			    { "float", builtInTypes_float = DefineBuiltInType(typeof(float)) },
-			    { "double", builtInTypes_double = DefineBuiltInType(typeof(double)) },
-			    { "decimal", builtInTypes_decimal = DefineBuiltInType(typeof(decimal)) },
-			    { "char", builtInTypes_char = DefineBuiltInType(typeof(char)) },
-			    { "string", builtInTypes_string = DefineBuiltInType(typeof(string)) },
-			    { "bool", builtInTypes_bool = DefineBuiltInType(typeof(bool)) },
-			    { "object", builtInTypes_object = DefineBuiltInType(typeof(object)) },
-			    { "void", builtInTypes_void = DefineBuiltInType(typeof(void)) },
-		    };
-			
-			builtInTypes_Array = DefineBuiltInType(typeof(System.Array));
-			builtInTypes_Nullable = DefineBuiltInType(typeof(System.Nullable<>));
-			builtInTypes_IEnumerable = DefineBuiltInType(typeof(System.Collections.IEnumerable));
-			builtInTypes_IEnumerable_1 = DefineBuiltInType(typeof(System.Collections.Generic.IEnumerable<>));
-			builtInTypes_Exception = DefineBuiltInType(typeof(System.Exception));
-			builtInTypes_Enum = DefineBuiltInType(typeof(System.Enum));
-		}
-
 		if (assembly != null)
 		{
 			System.Type[] types = null;
@@ -12344,7 +12438,7 @@ public class AssemblyDefinition : SymbolDefinition
 				return _globalNamespace;
 			}
 				
-			var namespacaes = new Dictionary<string, NamespaceDefinition>();
+			var namespaces = new Dictionary<string, NamespaceDefinition>();
 				
 			foreach (var t in types)
 			{
@@ -12364,7 +12458,7 @@ public class AssemblyDefinition : SymbolDefinition
 				if (!string.IsNullOrEmpty(typeNamespace))
 				{
 					NamespaceDefinition nsd;
-					if (namespacaes.TryGetValue(typeNamespace, out nsd))
+					if (namespaces.TryGetValue(typeNamespace, out nsd))
 					{
 						current = nsd;
 					}
@@ -12393,12 +12487,48 @@ public class AssemblyDefinition : SymbolDefinition
 								current = nsd;
 							}
 						}
-						namespacaes[typeNamespace] = (NamespaceDefinition) current;
+						namespaces[typeNamespace] = (NamespaceDefinition) current;
 					}
 				}
 	
 				current.ImportReflectedType(t);
 			}
+		}
+
+		if (builtInTypes == null)
+		{
+			builtInTypes = new Dictionary<string, TypeDefinitionBase>(16);
+
+			builtInTypes.Add("int", builtInTypes_int = DefineBuiltInType(typeof(int)));
+			builtInTypes.Add("uint", builtInTypes_uint = DefineBuiltInType(typeof(uint)));
+			builtInTypes.Add("byte", builtInTypes_byte = DefineBuiltInType(typeof(byte)));
+			builtInTypes.Add("sbyte", builtInTypes_sbyte = DefineBuiltInType(typeof(sbyte)));
+			builtInTypes.Add("short", builtInTypes_short = DefineBuiltInType(typeof(short)));
+			builtInTypes.Add("ushort", builtInTypes_ushort = DefineBuiltInType(typeof(ushort)));
+			builtInTypes.Add("long", builtInTypes_long = DefineBuiltInType(typeof(long)));
+			builtInTypes.Add("ulong", builtInTypes_ulong = DefineBuiltInType(typeof(ulong)));
+			builtInTypes.Add("float", builtInTypes_float = DefineBuiltInType(typeof(float)));
+			builtInTypes.Add("double", builtInTypes_double = DefineBuiltInType(typeof(double)));
+			builtInTypes.Add("decimal", builtInTypes_decimal = DefineBuiltInType(typeof(decimal)));
+			builtInTypes.Add("char", builtInTypes_char = DefineBuiltInType(typeof(char)));
+			builtInTypes.Add("string", builtInTypes_string = DefineBuiltInType(typeof(string)));
+			builtInTypes.Add("bool", builtInTypes_bool = DefineBuiltInType(typeof(bool)));
+			builtInTypes.Add("object", builtInTypes_object = DefineBuiltInType(typeof(object)));
+			builtInTypes.Add("void", builtInTypes_void = DefineBuiltInType(typeof(void)));
+			
+			builtInTypes_Array = DefineBuiltInType(typeof(System.Array));
+			builtInTypes_Nullable = DefineBuiltInType(typeof(System.Nullable<>));
+			builtInTypes_IEnumerable = DefineBuiltInType(typeof(System.Collections.IEnumerable));
+			builtInTypes_IEnumerable_1 = DefineBuiltInType(typeof(System.Collections.Generic.IEnumerable<>));
+			builtInTypes_Exception = DefineBuiltInType(typeof(System.Exception));
+			builtInTypes_Enum = DefineBuiltInType(typeof(System.Enum));
+
+			var typeTask = Type.GetType("System.Threading.Tasks.Task,mscorlib");
+			builtInTypes_Task = DefineBuiltInType(typeTask);
+			var typeTask1 = Type.GetType("System.Threading.Tasks.Task`1,mscorlib");
+			builtInTypes_Task_1 = DefineBuiltInType(typeTask1);
+			var typeINotifyCompletion = Type.GetType("System.Runtime.CompilerServices.INotifyCompletion,mscorlib");
+			builtInTypes_INotifyCompletion = DefineBuiltInType(typeINotifyCompletion);
 		}
 
 		//	timer.Stop();
@@ -12410,6 +12540,8 @@ public class AssemblyDefinition : SymbolDefinition
 
 	public static TypeDefinition DefineBuiltInType(Type type)
 	{
+		if (type == null)
+			return null;
 		var assembly = FromAssembly(type.Assembly);
 		var @namespace = assembly.FindNamespace(type.Namespace);
 		var name = type.Name;
@@ -13082,6 +13214,7 @@ public static class FGResolver
 			case "primaryExpression":
 			case "type":
 			case "globalNamespace":
+			case "nameofExpression":
 				return SymbolDefinition.ResolveNode(node, null, null, 0);
 			default:
 #if SI3_WARNINGS

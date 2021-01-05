@@ -1,6 +1,6 @@
 -------------------------------------
 SCRIPT INSPECTOR 3
-version 3.0.26, February 2020
+version 3.0.27, December 2020
 Copyright © 2012-2020, Flipbook Games
 -------------------------------------
 
@@ -23,6 +23,21 @@ Thank you @inventor2010 for being awesome!!! :)
 
 Script Inspector 3 - Version History
 =====================================
+
+New in version 3.0.27:
+- C# 5.0 to C# 7.3 support:
+  * async and await contextual keywords
+  * Null-conditional ?. operator
+  * Expression-bodied methods, constructors, finalizers, properties, property getters and setters, indexers, indexer getters and setters, and event adders and removers
+  * Initializers for auto-implemented properties
+  * String interpolation
+  * Fixed the nameof operator
+- New option to control auto-indenting in text assets - thanks @bobueland
+- Workaround for resizing autocomplete list - thanks @haywirephoenix
+- Fixed Cmd-Y binding on Mac for Go To Definition - thanks @Terko
+- Fixed unintended autocompletion on declaring local variable names starting with 'a', 'i', or 'n'
+- Fixed out of range exception on pinging non-existent line
+- Fixed warnings about "Window/Panel/1" not existing
 
 New in version 3.0.26:
 - Compatibility updates for:

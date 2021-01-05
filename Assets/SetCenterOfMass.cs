@@ -10,7 +10,7 @@ public class SetCenterOfMass : MonoBehaviour
     void Start()
     {
 	    rb = GetComponent<Rigidbody>();
-	    rb.centerOfMass = centerOfMass.transform.position;
+	    rb.centerOfMass= centerOfMass.transform.localPosition;
     }
 
     // Update is called once per frame

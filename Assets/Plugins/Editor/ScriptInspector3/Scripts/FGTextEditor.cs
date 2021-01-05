@@ -1,5 +1,5 @@
 ﻿/* SCRIPT INSPECTOR 3
- * version 3.0.26, February 2020
+ * version 3.0.27, December 2020
  * Copyright © 2012-2020, Flipbook Games
  * 
  * Unity's legendary editor for C#, UnityScript, Boo, Shaders, and text,
@@ -6523,6 +6523,15 @@ public class FGTextEditor
 					FGResolver.GetCompletions(IdentifierCompletionsType.MemberName, tokenLeft.parent, data, textBuffer.assetPath);
 				}
 				
+				if (tokenLeft != null && !addSymbols && addSnippets && data.Count == 2)
+				{
+					var first = data.First();
+					if (first.name == "as" || first.name == "is")
+					{
+						autocompleteWindow.defensiveMode = true;
+					}
+				}
+				
 				if (addSnippets)
 				{
 					if (suggestionsOnly && tokenLeft != null && tokenLeft.text == "override")
@@ -7322,7 +7331,7 @@ public class FGTextEditor
 				SaveBuffer();
 				return;
 			}
-			else if (current.keyCode == KeyCode.Y && (modifiers == (EventModifiers.Shift | EventModifiers.Command) || modifiers == EventModifiers.Command))
+			else if (current.keyCode == KeyCode.Y && modifiers == (EventModifiers.Shift | EventModifiers.Command))
 			{
 				current.Use();
 				CommandFindAllReferences();
@@ -8825,7 +8834,7 @@ public class FGTextEditor
 			{
 				if (tokenLeft.tokenKind == SyntaxToken.Kind.Punctuator)
 				{
-					if (text == ".")
+					if (text == "." || text == "?.")
 					{
 						autoPopupCompletions = true;
 						var nextLineText = textBuffer.lines[nextCaretLine];
@@ -9855,6 +9864,7 @@ public class FGTextEditor
 						ruleName == "delegateDeclaration" ||
 						ruleName == "variableDeclarator" ||
 						ruleName == "getAccessorDeclaration" ||
+						ruleName == "readonlyAccessorDeclaration" ||
 						ruleName == "setAccessorDeclaration" ||
 						ruleName == "addAccessorDeclaration" ||
 						ruleName == "removeAccessorDeclaration")

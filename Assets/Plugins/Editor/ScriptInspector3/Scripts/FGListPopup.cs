@@ -1,5 +1,5 @@
 ﻿/* SCRIPT INSPECTOR 3
- * version 3.0.26, February 2020
+ * version 3.0.27, December 2020
  * Copyright © 2012-2020, Flipbook Games
  * 
  * Unity's legendary editor for C#, UnityScript, Boo, Shaders, and text,
@@ -37,6 +37,7 @@ public class FGListPopup : FGPopupWindow
 	private const int maxListItems = 9;
 	private static float listItemHeight = 19f;
 	private bool isSizeSet;
+	private float currentWidth;
 
 	public static string NameOf(SymbolDefinition symbol)
 	{
@@ -466,6 +467,7 @@ public class FGListPopup : FGPopupWindow
 		Rect position = new Rect(screenPoint.x - 24f - editor.charSize.x * typedInPart.Length,
 			flipped ? screenPoint.y - 21f : screenPoint.y, 1f, 21f);
 		window.dropDownRect = new Rect(position.x, flipped ? position.y + 21f : position.y - editor.charSize.y, 1f, editor.charSize.y);
+		window.currentWidth = position.width;
 		window.position = position;
 		window.TypedInPart = typedInPart;
 
@@ -621,7 +623,7 @@ public class FGListPopup : FGPopupWindow
 			Event.current.Use();
 		}
 
-		scrollViewRect = new Rect(offset.x, offset.y, position.width, position.height);
+		scrollViewRect = new Rect(offset.x, offset.y, currentWidth, position.height);
 		GUI.Label(scrollViewRect, GUIContent.none, textEditor.styles.listFrameStyle);
 
 		scrollViewRect.xMin++;
@@ -692,13 +694,19 @@ public class FGListPopup : FGPopupWindow
 					itemContent.text += "<>";
 				width = Mathf.Max(width, listItemStyle.CalcSize(itemContent).x);
 			}
-			var rc = position;
+			var pos = position;
+			pos.width = currentWidth;
+			var rc = pos;
 			rc.width = Mathf.Max(rc.width, width + 24f + (filteredData.Count > maxListItems ? 21f : 2f));
 			rc.height = listItemHeight * Mathf.Min(maxListItems, filteredData.Count) + 2f;
-			if (!isSizeSet || rc != position)
+			if (!isSizeSet || rc != pos)
 			{
+				currentWidth = rc.width;
 				SetSize(rc.width, rc.height);
 				isSizeSet = true;
+				pos.width = currentWidth;
+				pos.height = rc.height;
+				position = pos;
 			}
 
 			EditorGUIUtility.SetIconSize(new Vector2(16f, 16f));
@@ -811,7 +819,7 @@ public class FGListPopup : FGPopupWindow
 
 		if (Event.current.type == EventType.KeyDown)
 		{
-			var acceptWith = currentItem < 0 ? "\t" : "\t\n {}[]().,:;+-*/%&|^!~=<>?@#\'\"\\";
+			var acceptWith = currentItem < 0 ? "\t" : "\t\n {}[]().,:;+-*/%&|^!~=<>?@\'\"\\";
 			if (topSuggestion != null && currentItem >= 0 /*&& typedInPart == ""*/)
 			{
 				var currentSymbol = filteredData[currentItem];

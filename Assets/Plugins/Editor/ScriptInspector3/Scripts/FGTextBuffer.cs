@@ -1,5 +1,5 @@
 ﻿/* SCRIPT INSPECTOR 3
- * version 3.0.26, February 2020
+ * version 3.0.27, December 2020
  * Copyright © 2012-2020, Flipbook Games
  * 
  * Unity's legendary editor for C#, UnityScript, Boo, Shaders, and text,
@@ -2231,8 +2231,16 @@ public class FGTextBuffer : ScriptableObject
 	
 	public string CalcAutoIndent(int line)
 	{
-		if (!SISettings.autoIndent)
-			return null;
+		if (isText)
+		{
+			if (!SISettings.autoIndentText)
+				return null;
+		}
+		else
+		{
+			if (!SISettings.autoIndentCode)
+				return null;
+		}
 		
 		SyntaxToken firstToken, firstNonTrivia;
 		GetFirstTokens(line, out firstToken, out firstNonTrivia);

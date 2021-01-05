@@ -1,5 +1,5 @@
 ﻿/* SCRIPT INSPECTOR 3
- * version 3.0.26, February 2020
+ * version 3.0.27, December 2020
  * Copyright © 2012-2020, Flipbook Games
  * 
  * Unity's legendary editor for C#, UnityScript, Boo, Shaders, and text,
@@ -2265,6 +2265,7 @@ public abstract class FGGrammar
 
 	protected class If : Opt
 	{
+		protected readonly string currentTokenText;
 		protected readonly Predicate<IScanner> predicate;
 		protected readonly Node nodePredicate;
 		protected readonly bool debug;
@@ -2279,6 +2280,14 @@ public abstract class FGGrammar
 		public If(Node pred, Node node, bool debug = false)
 			: base(node)
 		{
+			nodePredicate = pred;
+			this.debug = debug;
+		}
+
+		public If(string currentText, Node pred, Node node, bool debug = false)
+		: base(node)
+		{
+			currentTokenText = currentText;
 			nodePredicate = pred;
 			this.debug = debug;
 		}
@@ -2310,7 +2319,9 @@ public abstract class FGGrammar
 				return predicate(scanner);
 			else if (nodePredicate != null)
 			{
-				return scanner.Lookahead(nodePredicate);//, new GoalAdapter());
+				if (currentTokenText != null && scanner.Current.text != currentTokenText)
+					return false;
+				return scanner.Lookahead(nodePredicate);
 			}
 			return false;
 		}
@@ -2663,11 +2674,8 @@ public abstract class FGGrammar
 
 			foreach (Lit lit in EnumerateLitNodes())
 			{
-				if (lits.Contains(lit.body))
-					continue;
-				
-				lits.Add(lit.body);
-				t.Add(lit.body);
+				if (lits.Add(lit.body))
+					t.Add(lit.body);
 			}
 			foreach (var id in EnumerateIdNodes())
 			{

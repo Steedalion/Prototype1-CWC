@@ -1,5 +1,5 @@
 ﻿/* SCRIPT INSPECTOR 3
- * version 3.0.26, February 2020
+ * version 3.0.27, December 2020
  * Copyright © 2012-2020, Flipbook Games
  * 
  * Unity's legendary editor for C#, UnityScript, Boo, Shaders, and text,
@@ -22,6 +22,15 @@ using Debug = UnityEngine.Debug;
 
 public class CsParser : FGParser
 {
+	public static bool isCSharp4 =
+#if UNITY_2019_3_OR_NEWER
+		false;
+#elif UNITY_2017_1_OR_NEWER
+		UnityEditor.PlayerSettings.scriptingRuntimeVersion == UnityEditor.ScriptingRuntimeVersion.Legacy;
+#else
+		true;
+#endif
+
 	public override HashSet<string> Keywords { get { return keywords; } }
 	public override HashSet<string> BuiltInLiterals { get { return scriptLiterals; } }
 
@@ -55,7 +64,8 @@ public class CsParser : FGParser
 	private static readonly HashSet<string> csOperators = new HashSet<string>{
 		"++", "--", "->", "+", "-", "!", "~", "++", "--", "&", "*", "/", "%", "+", "-", "<<", ">>", "<", ">",
 		"<=", ">=", "==", "!=", "&", "^", "|", "&&", "||", "??", "?", "::", ":",
-		"=", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "<<=", ">>=", "=>"
+		"=", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "<<=", ">>=", "=>",
+		"?.", "?[",
 	};
 
 	private static readonly HashSet<string> preprocessorKeywords = new HashSet<string>{
@@ -803,6 +813,14 @@ public class CsParser : FGParser
 						break;
 					}
 
+					if (!isCSharp4 && startAt < length - 1 && line[startAt] == '$' && line[startAt + 1] == '\"')
+					{
+						token = ScanStringLiteral(line, ref startAt);
+						tokens.Add(token);
+						token.formatedLine = formatedLine;
+						break;
+					}
+
 					if (startAt < length - 1 && line[startAt] == '@' && line[startAt + 1] == '\"')
 					{
 						token = new SyntaxToken(SyntaxToken.Kind.VerbatimStringBegin, line.Substring(startAt, 2)) { formatedLine = formatedLine };
@@ -832,27 +850,29 @@ public class CsParser : FGParser
 					// Multi-character operators / punctuators
 					// "++", "--", "<<", ">>", "<=", ">=", "==", "!=", "&&", "||", "??", "+=", "-=", "*=", "/=", "%=",
 					// "&=", "|=", "^=", "<<=", ">>=", "=>", "::"
+					// "?.", "?["
 					var punctuatorStart = startAt++;
 					if (startAt < line.Length)
 					{
+						var nextCharacter = line[startAt];
 						switch (line[punctuatorStart])
 						{
 							case '?':
-								if (line[startAt] == '?')
+								if (nextCharacter == '?' || !isCSharp4 && (nextCharacter == '.' || nextCharacter == '['))
 									++startAt;
 								break;
 							case '+':
-								if (line[startAt] == '+' || line[startAt] == '=')
+								if (nextCharacter == '+' || nextCharacter == '=')
 									++startAt;
 								break;
 							case '-':
-								if (line[startAt] == '-' || line[startAt] == '=')
+								if (nextCharacter == '-' || nextCharacter == '=')
 									++startAt;
 								break;
 							case '<':
-								if (line[startAt] == '=')
+								if (nextCharacter == '=')
 									++startAt;
-								else if (line[startAt] == '<')
+								else if (nextCharacter == '<')
 								{
 									++startAt;
 									if (startAt < line.Length && line[startAt] == '=')
@@ -860,7 +880,7 @@ public class CsParser : FGParser
 								}
 								break;
 							case '>':
-								if (line[startAt] == '=')
+								if (nextCharacter == '=')
 									++startAt;
 								//else if (startAt < line.Length && line[startAt] == '>')
 								//{
@@ -870,15 +890,15 @@ public class CsParser : FGParser
 								//}
 								break;
 							case '=':
-								if (line[startAt] == '=' || line[startAt] == '>')
+								if (nextCharacter == '=' || nextCharacter == '>')
 									++startAt;
 								break;
 							case '&':
-								if (line[startAt] == '=' || line[startAt] == '&')
+								if (nextCharacter == '=' || nextCharacter == '&')
 									++startAt;
 								break;
 							case '|':
-								if (line[startAt] == '=' || line[startAt] == '|')
+								if (nextCharacter == '=' || nextCharacter == '|')
 									++startAt;
 								break;
 							case '*':
@@ -886,11 +906,11 @@ public class CsParser : FGParser
 							case '%':
 							case '^':
 							case '!':
-								if (line[startAt] == '=')
+								if (nextCharacter == '=')
 									++startAt;
 								break;
 							case ':':
-								if (line[startAt] == ':')
+								if (nextCharacter == ':')
 									++startAt;
 								break;
 						}
